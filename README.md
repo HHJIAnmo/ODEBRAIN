@@ -67,7 +67,7 @@ python main.py --dataset TUSZ --input_dir <resampled-dir> --raw_data_dir <tusz-d
 The following baseline models are supported:
 | Model       | Description                       |
 | ----------- | --------------------------------- |
-| `BIOT`      | Bi-directional ODE Transformer    |
+| `BIOT`      | Transformer-based biosignal model |
 | `evolvegcn` | Dynamic graph convolution network |
 | `dcrnn`     | Diffusion Convolutional RNN       |
 | `lstm`      | Standard LSTM model               |
