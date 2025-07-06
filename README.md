@@ -60,7 +60,7 @@ Results (metrics, logs) will be saved to `<save-dir>`.
 
 Evaluation example:
 ```bash
-python main.py --dataset TUSZ --input_dir <resampled-dir> --raw_data_dir <tusz-data-dir> --save_dir <save-dir> --task detection --test --load_model_path <save-model-dir> --model_name evobrain --num_epochs 100 
+python main.py --dataset TUSZ --input_dir <resampled-dir> --raw_data_dir <tusz-data-dir> --save_dir <save-dir> --task detection --test --load_model_path <save-model-dir> --model_name evobrain
 ```
 
 ### Supported Baselines
