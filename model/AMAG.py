@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import time
 import torch_geometric.nn as geo_nn
 from torch_geometric.data import Data, Batch
@@ -718,6 +717,31 @@ class Linear(torch.nn.Module):
             ),
             tensor[-1],
         )
+    
+class gruenc(torch.nn.Module):
+    def __init__(self,feat_input_size: int, feat_target_size:int,/)-> None:
+        torch.nn.Module.__init__(self)
+        self.input_dim = feat_input_size
+        self.hidden_dim = feat_target_size
+        self.latent_dim = feat_target_size
+
+        self.rnn = nn.GRU(feat_input_size, feat_target_size)
+        self.hid2lat = nn.Linear(feat_target_size, 2*feat_target_size)
+
+    def forward(self, x):
+        # Concatenate time to input
+        #t = t.clone()
+        #t[1:] = t[:-1] - t[1:]
+        #t[0] = 0.
+        #xt = torch.cat((x, t), dim=-1)
+
+        _, h0 = self.rnn(x.flip((0,)))  # Reversed
+        # Compute latent dimension
+        z0 = self.hid2lat(h0[0])
+        z0_mean = z0[:, :self.latent_dim]
+        z0_log_var = z0[:, self.latent_dim:]
+        return z0_mean, z0_log_var
+    
 
 class Linear_IP(torch.nn.Module):
     R"""
@@ -836,28 +860,6 @@ class MultiheadAttention(torch.nn.Module):
         (y, attn) = self.mha.forward(x, x, x)
         return (y, cast(torch.Tensor, attn))
     
-class CNNEncoder(nn.Module):
-    def __init__(self, feature_dim=36):
-        super(CNNEncoder, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=(1, 1))
-        self.bn1 = nn.BatchNorm2d(16)
-        self.pool1 = nn.MaxPool2d(kernel_size=(2, 2)) 
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3, 3), padding=(1, 1))
-        self.bn2 = nn.BatchNorm2d(32)
-        self.pool2 = nn.MaxPool2d(kernel_size=(2, 2)) 
-        self.fc = nn.Linear(32 * 3 * 50, feature_dim) # 4800 = 32 *3 *50 for 12 sec length
-        
-    def forward(self, x):
-        # x shape: (B, 19, 12, 200), num_nodes: 19; max_seq_length: 12; max_sampling_length: 200
-        B, C, T, S = x.shape
-        x = x.reshape(B * C, 1, T, S)
-        x = self.pool1(F.relu(self.bn1(self.conv1(x))))  
-        x = self.pool2(F.relu(self.bn2(self.conv2(x))))  
-        x = x.view(B * C, -1) 
-        x = self.fc(x)         
-        x = x.view(B, C, -1) #final shape: (B,C,36)
-        return x
-    
 def sequentialize(
     name: str, feat_input_size: int, feat_target_size: int,
     /,
@@ -868,11 +870,14 @@ def sequentialize(
     #
     if name == "linear":
         #
-        #return Linear(feat_input_size, feat_target_size)
-       return Linear_IP(feat_input_size, feat_target_size) 
+        return Linear(feat_input_size, feat_target_size)
+       #return Linear_IP(feat_input_size, feat_target_size) 
     elif name == "gru":
         #
         return torch.nn.GRU(feat_input_size, feat_target_size)
+    elif name == "gruenc":
+        #
+        return gruenc(feat_input_size,feat_target_size)
     elif name == "lstm":
         #
         return torch.nn.LSTM(feat_input_size, feat_target_size)
@@ -900,31 +905,29 @@ class EvoBrain(nn.Module):
     """
     Sequential neural network then graph neural network (2-layer).
     """
-    def __init__(self, feat_input_size_edge, feat_input_size_node, pred_len, ode_input, feat_target_size, embed_inside_size, convolve, reduce_edge, reduce_node, skip, activate, concat, neo_gnn):
+    def __init__(self, feat_input_size_edge, feat_input_size_node, ode_input,feat_target_size, embed_inside_size, convolve, reduce_edge, reduce_node, skip, activate, concat, neo_gnn):
         super(EvoBrain, self).__init__()
         feat_input_size_edge =1
-        print("feat_input_size_edge: ", feat_input_size_edge)
+        
+        #print("feat_input_size_edge: ", feat_input_size_edge)
         # feat_input_size_node =100
 
-        print("feat_input_size_node: ", feat_input_size_node)
-        print("embed_inside_size: ", embed_inside_size)
-        print("feat_target_size: ", feat_target_size)
-        print("predict length: ", pred_len)
+        #print("feat_input_size_node: ", feat_input_size_node)
+        #print("embed_inside_size: ", embed_inside_size)
+        #print("feat_target_size: ", feat_target_size)
         
         self.reduce_edge = reduce_edge
         self.reduce_node = reduce_node
-        self.pred_len = pred_len
-        self.nod_input_size = feat_input_size_node
         self.snn_edge = sequentialize(reduce_edge, feat_input_size_edge, embed_inside_size)
         self.snn_node = sequentialize(reduce_node, feat_input_size_node, embed_inside_size)
-        self.raw_encoder = CNNEncoder(feature_dim=36)
-        self.odefuc = ODEFunc(ode_input,embed_inside_size+36)
-        #self.edgeodefuc = ODEFunc(embed_inside_size,embed_inside_size)
+        self.odefuc = ODEFunc(ode_input,embed_inside_size) #conect dim = 264
         self.gnnx2 = graphicalize(convolve, feat_input_size_edge if reduce_edge == "static" else embed_inside_size, embed_inside_size, feat_target_size, embed_inside_size, skip=skip, activate=activate, concat=concat)
         self.activate = activatize(activate)
         self.SIMPLEST = False
         
-        self.feat_target_size = feat_target_size + int(concat) * embed_inside_size +36
+        self.feat_target_size = feat_target_size + int(concat) * embed_inside_size
+        self.nod_input_size = feat_input_size_node
+        self.ode_out = ode_input
 
         self.neo_gnn = neo_gnn
         
@@ -935,32 +938,28 @@ class EvoBrain(nn.Module):
         resetted = resetted + self.gnnx2.reset(rng)
         return resetted
     
-    def forward(self, inputs, supports, raw_eeg):
+    def forward(self, inputs, supports):
         timestep, b, node, dim = inputs.shape # (12,b,19,100): time -> 12
         inputs = inputs.reshape(timestep, b*node, dim)
-        raw_eeg = raw_eeg.permute(0, 2, 1, 3)
-        raw_feature = self.raw_encoder(raw_eeg)
-        inputs = inputs[:timestep- self.pred_len] # only keep the pre-6s stable signal components
-        node_embeds, a = self.snn_node.forward(inputs.flip(0,))
+        inputs = inputs[:timestep-1] # only keep the pre-11s stable signal components
+        node_embeds, a = self.snn_node.forward(inputs)
         node_init = node_embeds[-1]
+        #print("node_init:",node_init.shape)
         node_init = node_init.reshape(b, -1, dim)
         node_embeds = node_embeds.reshape(-1, b, node, dim)
- 
+        #print("node_embeds_shape: ",node_embeds.shape)
         if supports.shape[2] == 1:
             supports = torch.squeeze(supports, dim=2)
         edge_tuples, edge_features = self.create_edge_tuples_and_features(supports)
 
         edge_features = edge_features.reshape(timestep, -1, 1)
-        edge_features = edge_features[:timestep - self.pred_len]
+        edge_features = edge_features[:timestep-1]
         edge_features = edge_features
-     #   edge_embeds, _ = self.snn_edge.forward(edge_features.flip(0,))
         edge_embeds, _ = self.snn_edge.forward(edge_features)
-        edge_embeds = edge_embeds.reshape(timestep - self.pred_len, b, -1, dim)
-
+        edge_embeds = edge_embeds.reshape(11, b, -1, dim)
         all_node_embeds = node_embeds
         all_edge_embeds = edge_embeds
-        print("shape of node embed:", all_node_embeds.shape)
-        print("shape of egde embed:", all_edge_embeds.shape)
+
         edge_tuples = edge_tuples.to(next(self.parameters()).device)
 
         outputs = []
@@ -972,15 +971,10 @@ class EvoBrain(nn.Module):
         
         
         outputs = torch.stack(outputs, dim=0)
-        ode_init = outputs
-        ode_int2 = torch.cat([ode_init,raw_feature],axis=2)
-        print("ode_init:",ode_init.shape)
-        t = torch.linspace(0, 1, steps=12).to(node_init.device)
-        if not isinstance(t, torch.Tensor):
-            t = torch.tensor(t, dtype=torch.float32) 
-        final_embeds = odeint(self.odefuc, ode_int2, t, method = 'rk4')
-     #   print("fina_dim:",final_embeds.shape)   
-        return outputs, final_embeds #, z0_mean, z0_log_var
+     #   print("outputs_shape: ",outputs.shape)
+        ode_init = torch.concatenate((node_init,outputs),axis=2)
+        final_embeds = ode_init    
+        return outputs, final_embeds
     
     def create_edge_tuples_and_features(self, adj):
         batch_size, timesteps, num_nodes, _ = adj.shape
@@ -1006,12 +1000,12 @@ class EvoBrain(nn.Module):
     
 
 
-class EvoBrain_classification(nn.Module):
+class AMAG_classification(nn.Module):
     """
     Sequential neural network then graph neural network (2-layer) adapted for classification.
     """
     def __init__(self, args, num_classes, device=None, gnn="gcn"):
-        super(EvoBrain_classification, self).__init__()
+        super(AMAG_classification, self).__init__()
         
         self.num_nodes = args.num_nodes
         self.num_classes = num_classes
@@ -1019,8 +1013,7 @@ class EvoBrain_classification(nn.Module):
         
         self.gru_gcn = EvoBrain(feat_input_size_edge=args.input_dim, 
                                feat_input_size_node=args.input_dim,
-                               pred_len= args.pred_len,
-                               ode_input = 200,
+                               ode_input = 264,
                                feat_target_size=args.rnn_units, 
                                embed_inside_size=args.input_dim,
                                convolve=gnn, 
@@ -1034,12 +1027,13 @@ class EvoBrain_classification(nn.Module):
             self.fc = nn.Linear(self.gru_gcn.feat_target_size, num_classes)
         else:
             self.fc = nn.Linear(self.gru_gcn.feat_target_size * self.num_nodes, num_classes)
-        self.pred = nn.Linear(200, self.gru_gcn.nod_input_size)
         self.dropout = nn.Dropout(args.dropout)
         self.relu = nn.ReLU()
         self.agg = args.agg
+        self.pred = nn.Linear(264, self.gru_gcn.nod_input_size)
+        self.fc2 = nn.Linear(self.gru_gcn.ode_out*self.num_nodes,num_classes)
         
-    def forward(self, input_seq, seq_lengths, adj, raw_eeg):
+    def forward(self, input_seq, seq_lengths, adj):
         """
         Args:
             input_seq: input sequence, shape (batch, seq_len, num_nodes, input_dim)
@@ -1052,20 +1046,18 @@ class EvoBrain_classification(nn.Module):
         
         # (max_seq_len, batch, num_nodes, input_dim)
         input_seq = torch.transpose(input_seq, dim0=0, dim1=1)
-        
-        final_hidden, final_embeds = self.gru_gcn(input_seq, adj, raw_eeg)
+        #print("input_seq_shape: ",input_seq.shape)
+        final_hidden, final_embeds = self.gru_gcn(input_seq, adj)
         if self.agg == "concat":
             final_hidden = final_hidden.view(batch_size, -1)  # (batch_size, num_nodes * num_features)
-        final_node_embeds = final_embeds.mean(dim = 0)
-        #print("final_node_embeds shape:",final_node_embeds.shape)
-        #logits = self.fc(self.relu(self.dropout(final_hidden)))
-        logits = self.fc(self.relu(self.dropout(final_node_embeds)))
+        final_node_embeds = final_embeds
+   
+        logits = self.fc2(self.relu(self.dropout(final_node_embeds.view(batch_size,-1))))
+       
         recs_node = self.pred(self.dropout(final_embeds))
-        #recs_raw = self.pred_raw(self.dropout(final_embeds))
-     
-        predi_node = recs_node[6:] # node emobeddng prediction
-        #predi_raw = recs_raw[6:] # raw signal prediction
-        
+   
+        predi_node = recs_node[-1]
+
         if self.agg == "max":
             # max pooling over nodes
             pool_logits, _ = torch.max(logits, dim=1)  # (batch_size, num_features)
@@ -1080,4 +1072,4 @@ class EvoBrain_classification(nn.Module):
         else:
             raise ValueError(f"Unsupported aggregation method: {self.agg}")
         
-        return pool_logits, final_hidden, predi_node, recs_node,final_embeds #predi_raw, recs_node
+        return pool_logits, final_hidden, predi_node, recs_node

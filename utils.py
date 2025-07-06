@@ -507,6 +507,580 @@ def compute_regression_loss(
     else:
         return masked_mse_loss(y_predicted, y_true, mask_val=mask_val)
 
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+
+def visualize_odefunc_vector_field(ode_func, device, save_path='ode_vector_field.png'):
+
+    ode_input_size = ode_func.ode_input_size
+    
+    num_points = 20
+    x = np.linspace(-2, 2, num_points)
+    y = np.linspace(-2, 2, num_points)
+    X, Y = np.meshgrid(x, y)
+    grid_2d = np.stack([X.flatten(), Y.flatten()], axis=1)  # shape: [num_points*num_points, 2]
+
+  
+    if ode_input_size > 2:
+        grid_full = np.zeros((grid_2d.shape[0], ode_input_size), dtype=np.float32)
+        grid_full[:, :2] = grid_2d
+    else:
+        grid_full = grid_2d
+
+  
+    grid_tensor = torch.tensor(grid_full, dtype=torch.float32, device=device)
+   
+    t_const = torch.tensor(0.0, device=device)
+ 
+    with torch.no_grad():
+        field = ode_func(t_const, grid_tensor)
+    
+    
+    field_2d = field[:, :2].cpu().numpy()
+    U = field_2d[:, 0].reshape(X.shape)
+    V = field_2d[:, 1].reshape(Y.shape)
+    
+  
+    plt.figure(figsize=(8,6))
+    plt.quiver(X, Y, U, V, color='blue')
+    plt.xlabel('Dimension 1', fontsize=12)
+    plt.ylabel('Dimension 2', fontsize=12)
+    plt.title('ODEFunc Vector Field (First 2 dims)', fontsize=14)
+    plt.xlim([x.min(), x.max()])
+    plt.ylim([y.min(), y.max()])
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Vector field image saved to {save_path}")
+
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+
+def visualize_neural_ode(solution, mlp, sample_idx=0, node_idx=0, num_grid=20, save_path=None):
+
+    solution_sample = solution[:, sample_idx, node_idx, :]  # (T, state_dim)
+    solution_sample = solution_sample.cpu().numpy()
+    pca = PCA(n_components=2)
+    solution_2d = pca.fit_transform(solution_sample)  # shape: (T, 2)
+    pc1_min, pc1_max = solution_2d[:, 0].min(), solution_2d[:, 0].max()
+    pc2_min, pc2_max = solution_2d[:, 1].min(), solution_2d[:, 1].max()
+    xx, yy = np.meshgrid(np.linspace(pc1_min, pc1_max, num_grid),
+                         np.linspace(pc2_min, pc2_max, num_grid))
+    grid_2d = np.stack([xx.flatten(), yy.flatten()], axis=1)  # (num_grid*num_grid, 2)
+    
+    state_dim = solution_sample.shape[1]
+    if state_dim > 2:
+        grid_full = np.zeros((grid_2d.shape[0], state_dim), dtype=np.float32)
+        grid_full[:, :2] = grid_2d
+    else:
+        grid_full = grid_2d
+    
+    grid_tensor = torch.tensor(grid_full, dtype=torch.float32)
+    grid_tensor_expanded = grid_tensor.unsqueeze(0).unsqueeze(0)
+    t_const = torch.tensor(0.0)
+    device = next(mlp.parameters()).device
+    t_const = t_const.to(device)
+    grid_tensor_expanded = grid_tensor_expanded.to(device)
+    with torch.no_grad():
+        dfdt = mlp(t_const,grid_tensor_expanded)
+        dfdt = dfdt.squeeze(0).squeeze(0)  # shape: (num_points, state_dim)
+    
+    dfdt_2d = pca.transform(dfdt.cpu().numpy())  # shape: (num_points, 2)
+    
+    U = dfdt_2d[:, 0].reshape(xx.shape)
+    V = dfdt_2d[:, 1].reshape(yy.shape)
+    
+    plt.figure(figsize=(8, 6))
+    plt.streamplot(xx, yy, U, V, color='gray', density=1.5)
+    plt.plot(solution_2d[:, 0], solution_2d[:, 1], marker='o', color='red', label='Trajectory')
+    plt.xlabel('PC1', fontsize=12)
+    plt.ylabel('PC2', fontsize=12)
+    plt.title('Neural ODE: Vector Field (df/dt) and Trajectory', fontsize=14)
+    plt.legend()
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Visualization saved to {save_path}")
+    else:
+        plt.show()
+
+
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+def visualize_neural_ode_3d(solution, mlp, sample_idx=0, node_idx=0, num_grid=5, save_path=None):
+    """
+    Visualize the Neural ODE vector field (df/dt) and trajectory in 3D PCA space.
+    
+    Parameters:
+      solution: ODE solver output with shape (T, batch, num_nodes, state_dim).
+                For example, (12, batch, 19, 200).
+      mlp: an ODEFunc-like module with forward(t, y) that computes df/dt.
+      sample_idx: index of sample in the batch (default 0).
+      node_idx: index of node to visualize (default 0).
+      num_grid: grid resolution per dimension in the PCA space (default 5; total grid points = 5^3).
+      save_path: if provided, the figure will be saved to this path (e.g., 'ode_vector_field_3d.pdf'); 
+                 otherwise, the figure will be shown.
+    """
+    if isinstance(solution, torch.Tensor):
+        solution_sample = solution[:, sample_idx, node_idx, :].cpu().numpy()
+    else:
+        solution_sample = solution[:, sample_idx, node_idx, :]
+
+    pca = PCA(n_components=3)
+    solution_3d = pca.fit_transform(solution_sample)  # shape (T, 3)
+    
+    pc1_min, pc1_max = solution_3d[:, 0].min(), solution_3d[:, 0].max()
+    pc2_min, pc2_max = solution_3d[:, 1].min(), solution_3d[:, 1].max()
+    pc3_min, pc3_max = solution_3d[:, 2].min(), solution_3d[:, 2].max()
+    
+    grid_x = np.linspace(pc1_min, pc1_max, num_grid)
+    grid_y = np.linspace(pc2_min, pc2_max, num_grid)
+    grid_z = np.linspace(pc3_min, pc3_max, num_grid)
+    X, Y, Z = np.meshgrid(grid_x, grid_y, grid_z)  # shape (num_grid, num_grid, num_grid)
+    grid_3d = np.stack([X.flatten(), Y.flatten(), Z.flatten()], axis=1)  # shape (num_grid^3, 3)
+    
+    state_dim = solution_sample.shape[1]
+    if state_dim > 3:
+        grid_original = np.zeros((grid_3d.shape[0], state_dim), dtype=np.float32)
+        grid_original[:, :3] = grid_3d
+    else:
+        grid_original = grid_3d
+    
+    grid_tensor = torch.tensor(grid_original, dtype=torch.float32)
+    grid_tensor_expanded = grid_tensor.unsqueeze(0).unsqueeze(0)  # shape: (1, 1, num_grid^3, state_dim)
+    
+    t_const = torch.tensor(0.0, dtype=torch.float32)
+    device = next(mlp.parameters()).device
+    t_const = t_const.to(device)
+    grid_tensor_expanded = grid_tensor_expanded.to(device)
+    
+    # apply ODEFunc to compute the df/dt，output shape (1, 1, num_grid^3, state_dim)
+    with torch.no_grad():
+        dfdt = mlp(t_const, grid_tensor_expanded)
+    dfdt = dfdt.squeeze(0).squeeze(0)  # shape: (num_grid^3, state_dim)
+    
+    dfdt_np = dfdt.cpu().numpy()
+    dfdt_3d = pca.transform(dfdt_np)  # shape: (num_grid^3, 3)
+    
+    U = dfdt_3d[:, 0].reshape((num_grid, num_grid, num_grid))
+    V = dfdt_3d[:, 1].reshape((num_grid, num_grid, num_grid))
+    W = dfdt_3d[:, 2].reshape((num_grid, num_grid, num_grid))
+    
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.quiver(X, Y, Z, U, V, W, length=0.15, normalize=True, arrow_length_ratio=0.05, color='gray')
+
+    ax.plot(solution_3d[:, 0], solution_3d[:, 1], solution_3d[:, 2], marker='o', color='red', label='Trajectory')
+    
+    ax.set_xlabel('PC1', fontsize=12)
+    ax.set_ylabel('PC2', fontsize=12)
+    ax.set_zlabel('PC3', fontsize=12)
+    ax.set_title('3D Neural ODE: Vector Field and Trajectory', fontsize=14)
+
+    ax.legend()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"3D visualization saved to {save_path}")
+    else:
+        plt.show()
+
+def visualize_neural_ode_3d_multi_nodes(
+    solution, mlp, node_indices=[0, 1, 2],
+    sample_idx=0, num_grid=5, save_path=None
+):
+
+    fig = plt.figure(figsize=(6 * len(node_indices), 6))
+    
+    for i, node_idx in enumerate(node_indices):
+        ax = fig.add_subplot(1, len(node_indices), i + 1, projection='3d')
+        
+        if isinstance(solution, torch.Tensor):
+            solution_sample = solution[:, sample_idx, node_idx, :].cpu().numpy()
+        else:
+            solution_sample = solution[:, sample_idx, node_idx, :]
+        
+        T, state_dim = solution_sample.shape
+        
+        pca = PCA(n_components=3)
+        solution_3d = pca.fit_transform(solution_sample)  # (T, 3)
+        
+        pc1_min, pc1_max = solution_3d[:, 0].min(), solution_3d[:, 0].max()
+        pc2_min, pc2_max = solution_3d[:, 1].min(), solution_3d[:, 1].max()
+        pc3_min, pc3_max = solution_3d[:, 2].min(), solution_3d[:, 2].max()
+        
+        grid_x = np.linspace(pc1_min, pc1_max, num_grid)
+        grid_y = np.linspace(pc2_min, pc2_max, num_grid)
+        grid_z = np.linspace(pc3_min, pc3_max, num_grid)
+        X, Y, Z = np.meshgrid(grid_x, grid_y, grid_z)  # shape: (num_grid, num_grid, num_grid)
+        grid_3d = np.stack([X.flatten(), Y.flatten(), Z.flatten()], axis=1)  # (num_grid^3, 3)
+        
+        if state_dim > 3:
+            grid_original = np.zeros((grid_3d.shape[0], state_dim), dtype=np.float32)
+            grid_original[:, :3] = grid_3d
+        else:
+            grid_original = grid_3d
+        
+        grid_tensor = torch.tensor(grid_original, dtype=torch.float32)
+        grid_tensor_expanded = grid_tensor.unsqueeze(0).unsqueeze(0)
+        
+        t_const = torch.tensor(0.0, dtype=torch.float32)
+        device = next(mlp.parameters()).device
+        t_const = t_const.to(device)
+        grid_tensor_expanded = grid_tensor_expanded.to(device)
+        
+        with torch.no_grad():
+            dfdt = mlp(t_const, grid_tensor_expanded)  # (1,1,num_grid^3,state_dim)
+        dfdt = dfdt.squeeze(0).squeeze(0)  # (num_grid^3, state_dim)
+        
+        dfdt_np = dfdt.cpu().numpy()
+        dfdt_3d = pca.transform(dfdt_np)  # (num_grid^3, 3)
+        
+        U = dfdt_3d[:, 0].reshape((num_grid, num_grid, num_grid))
+        V = dfdt_3d[:, 1].reshape((num_grid, num_grid, num_grid))
+        W = dfdt_3d[:, 2].reshape((num_grid, num_grid, num_grid))
+        
+        #ax.quiver(X, Y, Z, U, V, W, length=0.15, normalize=True, arrow_length_ratio=0.05, color='gray')
+        ax.plot(solution_3d[:, 0], solution_3d[:, 1], solution_3d[:, 2],
+                marker='o', color='red', label=f'Node {node_idx} Trajectory')
+        
+        ax.set_xlabel('PC1', fontsize=10)
+        ax.set_ylabel('PC2', fontsize=10)
+        ax.set_zlabel('PC3', fontsize=10)
+        ax.set_title(f'Node {node_idx} in 3D PCA Space', fontsize=12)
+        ax.legend()
+    
+    plt.suptitle('3D Neural ODE for Multiple Nodes', fontsize=14)
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Visualization saved to {save_path}")
+    else:
+        plt.show()
+
+
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+
+def visualize_neural_ode_multi_nodes(solution, mlp, sample_idx=0, node_indices=[0, 1, 2],
+                                     num_grid=20, save_path=None):
+
+    if isinstance(solution, torch.Tensor):
+        solution = solution.cpu().numpy()
+
+    num_nodes = len(node_indices)
+    fig, axes = plt.subplots(1, num_nodes, figsize=(6 * num_nodes, 6))
+    if num_nodes == 1:
+        axes = [axes]
+    for i, node_idx in enumerate(node_indices):
+        ax = axes[i]
+        
+    
+        solution_sample = solution[:, sample_idx, node_idx, :]  # (T, state_dim)
+        
+       
+        pca = PCA(n_components=2)
+        solution_2d = pca.fit_transform(solution_sample)  # (T, 2)
+        
+
+        pc1_min, pc1_max = solution_2d[:, 0].min(), solution_2d[:, 0].max()
+        pc2_min, pc2_max = solution_2d[:, 1].min(), solution_2d[:, 1].max()
+        xx, yy = np.meshgrid(np.linspace(pc1_min, pc1_max, num_grid),
+                             np.linspace(pc2_min, pc2_max, num_grid))
+        grid_2d = np.stack([xx.flatten(), yy.flatten()], axis=1)  # shape: (num_grid^2, 2)
+        
+        state_dim = solution_sample.shape[1]
+        if state_dim > 2:
+            grid_full = np.zeros((grid_2d.shape[0], state_dim), dtype=np.float32)
+            grid_full[:, :2] = grid_2d
+        else:
+            grid_full = grid_2d
+        
+        grid_tensor = torch.tensor(grid_full, dtype=torch.float32)
+        grid_tensor_expanded = grid_tensor.unsqueeze(0).unsqueeze(0)  # shape: (1,1,num_points, state_dim)
+        
+        t_const = torch.tensor(0.0, dtype=torch.float32)
+        device = next(mlp.parameters()).device
+        t_const = t_const.to(device)
+        grid_tensor_expanded = grid_tensor_expanded.to(device)
+        
+        with torch.no_grad():
+            dfdt = mlp(t_const, grid_tensor_expanded)  # (1,1,num_points, state_dim)
+        dfdt = dfdt.squeeze(0).squeeze(0)  # (num_points, state_dim)
+        
+        dfdt_2d = pca.transform(dfdt.cpu().numpy())  # shape: (num_points, 2)
+        
+        U = dfdt_2d[:, 0].reshape(xx.shape)
+        V = dfdt_2d[:, 1].reshape(yy.shape)
+        
+        ax.streamplot(xx, yy, U, V, color='gray', density=1.5)
+        ax.plot(solution_2d[:, 0], solution_2d[:, 1],
+                marker='o', color='red', label=f'Node {node_idx} Trajectory')
+        
+        ax.set_xlabel("PC1", fontsize=12)
+        ax.set_ylabel("PC2", fontsize=12)
+        ax.set_title(f"Node {node_idx}: Vector Field & Trajectory", fontsize=12)
+        ax.legend()
+
+    plt.suptitle("Neural ODE: Multiple Nodes in 2D PCA Space", fontsize=14)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Visualization saved to {save_path}")
+    else:
+        plt.show()
+
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+
+def visualize_all_timesteps_2d(solution, mlp, num_grid=20, save_path=None):
+
+    if len(solution.shape) == 4:
+      
+        solution = solution[:, 0, ...]  # -> (T, 19, state_dim)
+
+    T, num_nodes, state_dim = solution.shape
+    assert num_nodes == 19,
+
+
+    max_plots = min(T, 12)
+
+    
+    if isinstance(solution, torch.Tensor):
+        solution = solution.cpu().numpy()
+
+   
+    fig, axes = plt.subplots(3, 4, figsize=(24, 18))
+    axes = axes.flatten()
+
+    for i in range(max_plots):
+        ax = axes[i]
+        
+       
+        node_states = solution[i]  # (19, state_dim)
+
+       
+        pca = PCA(n_components=2)
+        node_states_2d = pca.fit_transform(node_states)  # (19, 2)
+
+        
+        x_min, x_max = node_states_2d[:, 0].min(), node_states_2d[:, 0].max()
+        y_min, y_max = node_states_2d[:, 1].min(), node_states_2d[:, 1].max()
+        xx, yy = np.meshgrid(np.linspace(x_min, x_max, num_grid),
+                             np.linspace(y_min, y_max, num_grid))
+        grid_2d = np.stack([xx.ravel(), yy.ravel()], axis=1)  # shape: (num_grid^2, 2)
+
+     
+        if state_dim > 2:
+            grid_full = np.zeros((grid_2d.shape[0], state_dim), dtype=np.float32)
+            grid_full[:, :2] = grid_2d
+        else:
+            grid_full = grid_2d
+        
+
+        grid_tensor = torch.tensor(grid_full, dtype=torch.float32)
+        grid_tensor = grid_tensor.unsqueeze(0)  # (1, num_points, state_dim)
+
+        grid_tensor_expanded = grid_tensor  # rename
+
+        t_val = float(i)  # or i / (T-1)
+        t_const = torch.tensor(t_val, dtype=torch.float32)
+
+        device = next(mlp.parameters()).device
+        t_const = t_const.to(device)
+        grid_tensor_expanded = grid_tensor_expanded.to(device)
+
+        with torch.no_grad():
+            dfdt = mlp(t_const, grid_tensor_expanded)  # (1, num_grid^2, state_dim)
+        dfdt = dfdt.squeeze(0)  # (num_grid^2, state_dim)
+
+        dfdt_2d = pca.transform(dfdt.cpu().numpy())  # shape: (num_grid^2, 2)
+        U = dfdt_2d[:, 0].reshape(xx.shape)
+        V = dfdt_2d[:, 1].reshape(yy.shape)
+
+        ax.streamplot(xx, yy, U, V, color='gray', density=1.5)
+        ax.scatter(node_states_2d[:, 0], node_states_2d[:, 1],
+                   c='red', marker='o', s=50)
+        
+        #ax.set_xlabel('PC1')
+        #ax.set_ylabel('PC2')
+        ax.set_title(f"Snapshots {i} (t={t_val:.2f})", fontsize=12)
+        ax.legend()
+
+    for j in range(max_plots, 12):
+        axes[j].set_visible(False)
+
+    #plt.suptitle("Neural ODE: 2D PCA Vector Fields Across All Time Steps", fontsize=16)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Visualization saved to {save_path}")
+    else:
+        plt.show()
+
+
+
+def visualize_3_nodes_in_one_3d(solution, mlp, node_indices=[0, 1, 2],
+                                sample_idx=0, num_grid=5, save_path=None):
+
+
+    if len(solution.shape) == 4:
+        # shape: (T, batch, num_nodes, state_dim)
+        solution = solution[:, sample_idx, ...]  # -> (T, num_nodes, state_dim)
+
+    T, num_nodes, state_dim = solution.shape
+
+
+    selected_data = []
+    for node_idx in node_indices:
+       
+        if isinstance(solution, torch.Tensor):
+            node_traj = solution[:, node_idx, :].cpu().numpy()  # shape: (T, state_dim)
+        else:
+            node_traj = solution[:, node_idx, :]
+        selected_data.append(node_traj)
+
+    selected_data = np.concatenate(selected_data, axis=0)  # (T * len(node_indices), state_dim)
+    
+    if isinstance(selected_data, torch.Tensor):
+        selected_data = selected_data.cpu().numpy()
+
+    pca = PCA(n_components=3)
+    selected_data_3d = pca.fit_transform(selected_data)  # (T * len(node_indices), 3)
+
+    pc1_min, pc1_max = selected_data_3d[:, 0].min(), selected_data_3d[:, 0].max()
+    pc2_min, pc2_max = selected_data_3d[:, 1].min(), selected_data_3d[:, 1].max()
+    pc3_min, pc3_max = selected_data_3d[:, 2].min(), selected_data_3d[:, 2].max()
+
+    grid_x = np.linspace(pc1_min, pc1_max, num_grid)
+    grid_y = np.linspace(pc2_min, pc2_max, num_grid)
+    grid_z = np.linspace(pc3_min, pc3_max, num_grid)
+    X, Y, Z = np.meshgrid(grid_x, grid_y, grid_z)  # shape: (num_grid, num_grid, num_grid)
+    grid_3d = np.stack([X.flatten(), Y.flatten(), Z.flatten()], axis=1)  # (num_grid^3, 3)
+
+    if state_dim > 3:
+        grid_original = np.zeros((grid_3d.shape[0], state_dim), dtype=np.float32)
+        grid_original[:, :3] = grid_3d
+    else:
+        grid_original = grid_3d
+
+    grid_tensor = torch.tensor(grid_original, dtype=torch.float32)
+    grid_tensor_expanded = grid_tensor.unsqueeze(0).unsqueeze(0)  # (1,1,num_grid^3, state_dim)
+
+    t_const = torch.tensor(0.0, dtype=torch.float32)
+
+    device = next(mlp.parameters()).device
+    t_const = t_const.to(device)
+    grid_tensor_expanded = grid_tensor_expanded.to(device)
+
+    with torch.no_grad():
+        dfdt = mlp(t_const, grid_tensor_expanded)  # (1,1,num_grid^3, state_dim)
+    dfdt = dfdt.squeeze(0).squeeze(0)  # (num_grid^3, state_dim)
+
+    dfdt_np = dfdt.cpu().numpy()
+    dfdt_3d = pca.transform(dfdt_np)  # shape: (num_grid^3, 3)
+
+    U = dfdt_3d[:, 0].reshape((num_grid, num_grid, num_grid))
+    V = dfdt_3d[:, 1].reshape((num_grid, num_grid, num_grid))
+    W = dfdt_3d[:, 2].reshape((num_grid, num_grid, num_grid))
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.quiver(X, Y, Z, U, V, W, length=0.2, normalize=True,
+              arrow_length_ratio=0.1, color='gray')
+
+    colors = ['red', 'blue', 'green', 'orange', 'purple', 'cyan']  # 以防节点 > 3
+    for i, node_idx in enumerate(node_indices):
+        node_traj = solution[:, node_idx, :]  # (T, state_dim)
+        node_traj_3d = pca.transform(node_traj.cpu().numpy())
+        c = colors[i % len(colors)]
+        ax.plot(node_traj_3d[:, 0], node_traj_3d[:, 1], node_traj_3d[:, 2],
+                marker='o', color=c, label=f'Node {node_idx} Trajectory')
+
+    ax.set_xlabel('PC1', fontsize=12)
+    ax.set_ylabel('PC2', fontsize=12)
+    ax.set_zlabel('PC3', fontsize=12)
+    ax.set_title('Multiple Nodes in One 3D PCA Space', fontsize=14)
+    ax.legend()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Visualization saved to {save_path}")
+    else:
+        plt.show()
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_raw_eeg(raw_eeg, sample_idx=0, save_path=None, offset=None):
+
+    if hasattr(raw_eeg, 'cpu'):
+        raw_eeg = raw_eeg.cpu().numpy()
+    
+    eeg_sample = raw_eeg[sample_idx]
+    num_time = eeg_sample.shape[0]
+    num_sensors = eeg_sample.shape[1]
+    signal_length = eeg_sample.shape[2]
+
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12), sharex=True)
+    axes = axes.flatten()
+
+    x = np.arange(signal_length)
+    
+    for t in range(num_time):
+        ax = axes[t]
+        signals = eeg_sample[t]
+        if offset is None:
+            min_val = np.min(signals)
+            max_val = np.max(signals)
+            computed_offset = (max_val - min_val) * 1.2 / num_sensors
+        else:
+            computed_offset = offset
+        
+        for sensor in range(num_sensors):
+            signal = signals[sensor]
+            ax.plot(x, signal + sensor * computed_offset, color='k', alpha=0.8) # '#1f77b4'
+        
+        ax.set_title(f"Time Slice {t}", fontsize=12)
+        ax.set_xlabel("Time", fontsize=10)
+        ax.set_ylabel("Amplitude + Offset", fontsize=10)
+        if t == 0:
+            ax.legend(loc='upper right', fontsize=8)
+    
+    for i in range(num_time, len(axes)):
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Waveform visualization saved to {save_path}")
+    else:
+        plt.show()
+
+
+
 class Namespace(object):
     '''
     helps referencing object in a dictionary as dict.key instead of dict['key']

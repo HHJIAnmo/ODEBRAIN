@@ -62,10 +62,12 @@ def computeSliceMatrix(
 
     start_time_step = 0
     time_steps = []
+    raw_stpes = []
     while start_time_step <= curr_slc.shape[1] - physical_time_step_size:
         end_time_step = start_time_step + physical_time_step_size
         # (num_channels, physical_time_step_size)
         curr_time_step = curr_slc[:, start_time_step:end_time_step]
+        raw_stpes.append(curr_time_step)
         if is_fft:
             curr_time_step, _ = computeFFT(
                 curr_time_step, n=physical_time_step_size)
@@ -74,6 +76,7 @@ def computeSliceMatrix(
         start_time_step = end_time_step
 
     eeg_clip = np.stack(time_steps, axis=0)
+    raw_eeg = np.stack(raw_stpes, axis=0)
 
     # determine if there's seizure in current clip
     is_seizure = 0
@@ -84,7 +87,7 @@ def computeSliceMatrix(
             is_seizure = 1
             break
 
-    return eeg_clip, is_seizure
+    return eeg_clip, is_seizure, raw_eeg
 
 
 def parseTxtFiles(split_type, seizure_file, nonseizure_file,
@@ -380,7 +383,7 @@ class SeizureDataset(Dataset):
         if self.preproc_dir is None:
             resample_sig_dir = os.path.join(
                 self.input_dir, h5_fn.split('.edf')[0] + '.h5')
-            eeg_clip, is_seizure = computeSliceMatrix(
+            eeg_clip, is_seizure, raw_eeg = computeSliceMatrix(
                 h5_fn=resample_sig_dir, edf_fn=edf_file, clip_idx=clip_idx,
                 time_step_size=self.time_step_size, clip_len=self.max_seq_len,
                 is_fft=self.use_fft)
@@ -388,6 +391,7 @@ class SeizureDataset(Dataset):
             with h5py.File(os.path.join(self.preproc_dir, h5_fn), 'r') as hf:
                 eeg_clip = hf['clip'][()]
 
+        raw_eeg_clip = raw_eeg.copy()
         # data augmentation
         if self.data_augment:
             curr_feature, swap_nodes = self._random_reflect(eeg_clip)
@@ -467,7 +471,7 @@ class SeizureDataset(Dataset):
             print(f"seq_len: {seq_len}")
             print(f"supports_seq.shape: {supports_seq.shape}")
             print(f"adj_mat_seq.shape: {adj_mat_seq.shape}")
-        return (x, y, seq_len, supports_seq, adj_mat_seq, writeout_fn)
+        return (x, y, seq_len, supports_seq, adj_mat_seq, writeout_fn, torch.FloatTensor(raw_eeg_clip))
 
 def load_dataset_detection(
         input_dir,

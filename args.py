@@ -88,7 +88,7 @@ def get_args():
         help='Top-k neighbors of each node to keep, for graph sparsity.')
 
     # Model args
-    parser.add_argument("--model_name", type=str, default="evobrain", choices=("evobrain", "lstm", "cnnlstm", "dcrnn", "evolvegcn", "BIOT"))
+    parser.add_argument("--model_name", type=str, default="evobrain", choices=("evobrain", "lstm", "cnnlstm", "dcrnn", "evolvegcn", "BIOT","AMAG"))
     parser.add_argument('--num_nodes',
                         type=int,
                         default=19,

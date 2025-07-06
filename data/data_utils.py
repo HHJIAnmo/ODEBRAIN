@@ -5,7 +5,7 @@ import sys
 
 sys.path.append("../")
 import pyedflib
-from data.constants import INCLUDED_CHANNELS, FREQUENCY, ALL_LABEL_DICT
+from constants import INCLUDED_CHANNELS, FREQUENCY, ALL_LABEL_DICT
 from scipy.fftpack import fft
 from scipy.signal import resample, correlate
 

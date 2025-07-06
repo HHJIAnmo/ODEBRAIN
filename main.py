@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import math
 import utils
+from torch.utils.data import Subset, DataLoader
 from data.data_utils import *
 from data.dataloader_detection import load_dataset_detection
 from data.dataloader_chb import load_dataset_chb
@@ -26,10 +27,12 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from dotted_dict import DottedDict
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from sklearn.model_selection import KFold
 import copy
 import pandas as pd
 import sklearn
 import time
+import h5py
 
 def main(args):
 
@@ -253,6 +256,17 @@ def main(args):
                                  for k, v in test_results.items())
     log.info('TEST set prediction results: {}'.format(test_results_str))
 
+    cv_summary = cross_validate_evaluate(
+                            model=model,
+                            full_dataset=dataloaders['test'].dataset,
+                            args=args,
+                            save_dir=args.save_dir,
+                            device=device,
+                            k_folds=5)
+
+    cv_summary_str = ', '.join('{}: {:.4f}±{:.4f}'.format(k, m, s)
+                                for k, (m, s) in cv_summary.items())
+    log.info('5-fold CV results: {}'.format(cv_summary_str))
 
 def train(model, dataloaders, args, device, save_dir, log, tbx):
     """
@@ -301,16 +315,15 @@ def train(model, dataloaders, args, device, save_dir, log, tbx):
         total_samples = len(train_loader.dataset)
         with torch.enable_grad(), \
                 tqdm(total=total_samples) as progress_bar:
-            for x, y, seq_lengths, supports, adj, file_name in train_loader:
+            for x, y, seq_lengths, supports, adj, file_name, raw_eeg in train_loader:
                 batch_size = x.shape[0]
-
                 # input seqs
                 x = x.to(device)
                 y = y.view(-1).to(device)  # (batch_size,)
                 seq_lengths = seq_lengths.view(-1).to(device)  # (batch_size,)
                 supports = supports.to(device)
                 adj = adj.to(device)
-
+                raw_eeg = raw_eeg.to(device)
                 # Zero out optimizer first
                 optimizer.zero_grad()
 
@@ -320,7 +333,8 @@ def train(model, dataloaders, args, device, save_dir, log, tbx):
                 initial_memory = torch.cuda.memory_allocated(device) if torch.cuda.is_available() else 0
 
                 if args.model_name == "evobrain" or args.model_name == "evolvegcn":
-                    logits, _ = model(x, seq_lengths, adj)
+                    logits, _ , predict, _, _ = model(x, seq_lengths, adj,raw_eeg)
+                    #logits, _  = model(x, seq_lengths, adj,raw_eeg)
                 elif args.model_name == "dcrnn":
                     logits, _ = model(x, seq_lengths, supports)     
                 elif args.model_name == "BIOT":
@@ -331,8 +345,13 @@ def train(model, dataloaders, args, device, save_dir, log, tbx):
                     print("model_name: ", args.model_name)
                     raise NotImplementedError
                 if logits.shape[-1] == 1:
-                    logits = logits.view(-1)          
-                loss = loss_fn(logits, y)
+                    logits = logits.view(-1) 
+                loss_mse = nn.MSELoss()
+                
+                loss1 =  loss_mse(x[:,6:,:,:],predict.permute(1,0,2,3)) # evobrain loss  
+                #predict = predict.permute(1,0,2,3)       
+                #loss1 =  loss_mse(raw_eeg[:,-1,:,:],predict[:,-1,:,:])   
+                loss = loss_fn(logits, y) + loss1 
                 loss_val = loss.item()
 
                 # Backward
@@ -434,8 +453,12 @@ def evaluate(
     y_prob_all = []
     file_name_all = []
     hidden_all = []
+    ode_all = []
+    test_node = []
+    solution=[]
+    iteration = 0
     with torch.no_grad(), tqdm(total=len(dataloader.dataset)) as progress_bar:
-        for x, y, seq_lengths, supports, adj, file_name in dataloader:
+        for x, y, seq_lengths, supports, adj, file_name, raw_eeg in dataloader:
             batch_size = x.shape[0]
 
             # Input seqs
@@ -444,11 +467,35 @@ def evaluate(
             seq_lengths = seq_lengths.view(-1).to(device)  # (batch_size,)
             supports = supports.to(device)
             adj = adj.to(device)
-
+            raw_eeg = raw_eeg.to(device)
+            iteration += 1
             # Forward
             # (batch_size, num_classes)
             if args.model_name == "evobrain":
-                logits, hidden = model(x, seq_lengths, adj)
+                logits, hidden,_,ode_node,final_embes = model(x, seq_lengths, adj,raw_eeg)
+            #    ode_func = model.gru_gcn.odefuc
+            #    save_path_odefun = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/odefun_vector_field", f'ode_visulize_{iteration}.png')
+            #    utils.visualize_odefunc_vector_field(ode_func, device, save_path=os.path.join(args.save_dir, 'ode_vector_field.png'))
+            #    utils.visualize_neural_ode(final_embes, ode_func, sample_idx=88, node_idx=3, num_grid=40, save_path=save_path_odefun)
+
+            #    save_path_ode_multi_nodes = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/neural_ode_multi_nodes", f'neural_ode_multi_nodes_{iteration}.png')
+            #    utils.visualize_neural_ode_multi_nodes(final_embes, ode_func, sample_idx=88, node_indices=[0, 6, 12],num_grid=20, save_path=save_path_ode_multi_nodes)
+
+            #    save_path_neural_ode_3d = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/neural_ode_3d", f'neural_ode_3d_{iteration}.png')
+            #    utils.visualize_neural_ode_3d(final_embes, ode_func, sample_idx=88, node_idx=3, num_grid= 5, save_path=save_path_neural_ode_3d)
+
+            #    save_path_neural_ode_3d_multi_nodes = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/neural_ode_3d_multi_nodes", f'neural_ode_3d_multi_nodes_{iteration}.png')
+            #    utils.visualize_neural_ode_3d_multi_nodes(final_embes, ode_func, node_indices=[0, 6, 12], sample_idx=88, num_grid=5, save_path=save_path_neural_ode_3d_multi_nodes)
+
+            #    save_path_3_nodes_in_one = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/3_nodes_in_one_3d", f'3_nodes_in_one_{iteration}.png')
+            #    utils.visualize_3_nodes_in_one_3d(final_embes, ode_func, node_indices=[0, 6, 12], sample_idx=88, num_grid=5, save_path=save_path_3_nodes_in_one)
+
+            #    save_path_all_timesteps_2d = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/all_timesteps_2d", f'all_timesteps_2d_{iteration}.png')
+            #    utils.visualize_all_timesteps_2d(final_embes, ode_func, num_grid=20, save_path=save_path_all_timesteps_2d)
+
+            #    save_path_raw_eeg = os.path.join("/home/ka/EvoBrain/tusz_result/tusz_graph_raw/TUSZ/detection/12/figure_results/raw_eeg", f'raw_eeg_{iteration}.png')
+            #    utils.visualize_raw_eeg(raw_eeg, sample_idx=88, save_path = save_path_raw_eeg)
+                
             elif args.model_name == "dcrnn":
                 logits, hidden = model(x, seq_lengths, supports)
             elif args.model_name == "evolvegcn":
@@ -484,6 +531,9 @@ def evaluate(
             y_prob_all.append(y_prob)
             file_name_all.extend(file_name)
             hidden_all.append(hidden.cpu().reshape(hidden.shape[0], -1))
+#            ode_all.append(ode_node.cpu().reshape(12, hidden.shape[0], 19,100))
+            test_node.append(x.cpu())
+#            solution.append(final_embes.cpu().reshape(12, hidden.shape[0], 19,200))
 
             # Log info
             progress_bar.update(batch_size)
@@ -492,8 +542,12 @@ def evaluate(
     y_true_all = np.concatenate(y_true_all, axis=0)
     y_prob_all = np.concatenate(y_prob_all, axis=0)
     hidden_all = np.concatenate(hidden_all, axis=0)
-    print("Hidden shape:", hidden_all.shape)
-    print("y_pred_all shape:", y_pred_all.shape)
+#    ode_all = np.concatenate(ode_all, axis=1)
+    test_all = np.concatenate(test_node,axis=0)
+#    solution = np.concatenate(solution,axis = 1)
+#    print("Hidden shape:", hidden_all.shape)
+#    print("y_pred_all shape:", y_pred_all.shape)
+#    print("solution:",solution.shape)
 
     # 評価結果をファイルに保存
     if is_test:
@@ -504,6 +558,33 @@ def evaluate(
                  y_prob=y_prob_all, 
                  file_names=file_name_all)
         print(f"Evaluation results saved to {results_file}")
+
+    if is_test:
+            output_file = os.path.join(save_dir, "ode_node.h5")
+
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            with h5py.File(output_file, "w") as hf:
+            # 创建一个名为 "dataset" 的数据集
+                hf.create_dataset("ode_all", data=ode_all)
+
+    if is_test:
+            output_file = os.path.join(save_dir, "ode_solution.h5")
+
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            with h5py.File(output_file, "w") as hf:
+         
+                hf.create_dataset("solution", data=solution)
+
+    if is_test:
+            output_file = os.path.join(save_dir, "test_node.h5")
+
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            with h5py.File(output_file, "w") as hf:
+            # 创建一个名为 "dataset" 
+                hf.create_dataset("test_all", data=test_all)
 
     if eval_set=='test':
             output_file = os.path.join(save_dir, "hidden.csv")
@@ -555,6 +636,57 @@ def evaluate(
     results = OrderedDict(results_list)
 
     return results
+
+def cross_validate_evaluate(model, full_dataset, args, save_dir, device, k_folds=5):
+    # 1. 创建 KFold 分割器，定义折数和随机打乱种子
+    kf = KFold(
+        n_splits=k_folds,        # 折数：这里是 5 折
+        shuffle=True,            # 在划分前先打乱索引顺序
+        random_state=args.rand_seed  # 保证可复现
+    )
+
+    all_fold_results = []  # 用来存储每一折的 evaluate() 返回结果
+
+    # 2. 对 full_dataset 进行 kf.split 划分，返回 (train_idx, val_idx)
+    for fold, (_, val_idx) in enumerate(kf.split(full_dataset), start=1):
+        print(f"\n=== Fold {fold}/{k_folds} ===")
+
+        # 3. 根据本折的验证集索引 val_idx，构造 Subset 和 DataLoader
+        val_subset = Subset(full_dataset, val_idx)
+        val_loader = DataLoader(
+            val_subset,
+            batch_size=args.test_batch_size,
+            shuffle=False,        # 验证时不需要打乱
+            num_workers=args.num_workers
+        )
+
+        # 4. 调用你原本的 evaluate()，只评估本折的验证集
+        fold_res = evaluate(
+            model=model,
+            dataloader=val_loader,
+            args=args,
+            save_dir=save_dir,
+            device=device,
+            is_test=True,
+            eval_set=f"fold{fold}"
+        )
+        # 打印本折的各项指标
+        print({k: f"{v:.4f}" for k, v in fold_res.items()})
+
+        all_fold_results.append(fold_res)
+
+    # 5. 所有折跑完后，将各折结果汇总——计算 mean 和 std
+    print("\n=== Cross-Validation Summary ===")
+    summary = {}
+    # 假设每个 fold_res 都是同样的指标字典
+    for key in all_fold_results[0].keys():
+        vals = np.array([r[key] for r in all_fold_results], dtype=float)
+        mean, std = vals.mean(), vals.std()
+        summary[key] = (mean, std)
+        # 打印出“指标: 平均值 ± 标准差”
+        print(f"{key}: {mean:.4f} ± {std:.4f}")
+
+    return summary
 
 def check_tensor(data, description):
     if not isinstance(data, torch.Tensor):
