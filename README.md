@@ -1,7 +1,7 @@
-# NeuroTSo
-Modeling Neuronal Population Dynamics via Temporal-Spatial ODE Solver
+# ODEBRAIN
+Continuous-Time EEG Graph for Modeling Dynamic Brain Networks
 ![NeuroTSo](./fig/proposal.png)
-*Figure: Continuous neural dynamics modeling via NeuroTSo Solver with graph forecasting. (a) Multi-channel EEG signals are encoded into spectral graph snapshots and fused with raw signal features to construct noise-robust initial states for ODE integration to predict the future $t+K$ spectral graphs. (b) NeuroTSo solver propagates latent states through time, generating dynamic field $f$ that capture continuous trajectory. (c) Future graph node embeddings are obtained by $z(t)$, and measure with groudtruth graph node.
+*Figure: Continuous neural dynamics modeling via ODEBRAIN with graph forecasting. In stage 1, multi-channel EEG signals are encoded into spectral graph snapshots and fused with raw signal features to construct noise-robust initial states for ODE integration to predict the future spectral graphs. In stage 2, \method propagates latent states through time, generating dynamic field $f$ that capture continuous trajectory. Lastly, future graph node embeddings are obtained by $z_{T}$, and measure with ground truth graph node.
 
 ## Abstract
 **NeuroTSo** is a neural ODE-based forecasting framework for modeling neural populaion dynamics. It integrates spectral-temporal-spatial EEG features into graph-structured representations and leverages continuous-time latent dynamics modeling for brain state estimation.
