@@ -4,7 +4,7 @@ Continuous-Time EEG Graph for Modeling Dynamic Brain Networks
 *Figure: Continuous neural dynamics modeling via ODEBRAIN with graph forecasting. In stage 1, multi-channel EEG signals are encoded into spectral graph snapshots and fused with raw signal features to construct noise-robust initial states for ODE integration to predict the future spectral graphs. In stage 2, ODEBRAIN propagates latent states through time, generating dynamic field $f$ that capture continuous trajectory. Lastly, future graph node embeddings are obtained by $z_{T}$, and measure with ground truth graph node.
 
 ## Abstract
-**NeuroTSo** is a neural ODE-based forecasting framework for modeling neural populaion dynamics. It integrates spectral-temporal-spatial EEG features into graph-structured representations and leverages continuous-time latent dynamics modeling for brain state estimation.
+**ODEBRAIN** is a neural ODE-based forecasting framework for modeling neural populaion dynamics. It integrates spectral-temporal-spatial EEG features into graph-structured representations and leverages continuous-time latent dynamics modeling for brain state estimation.
 The framework is designed to address:
     - Arbitrary-time brain state forecasting via continuous temporal-spatial solvers
     - Structured spatial and stochastical EEG temporal dynamics learning
