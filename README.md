@@ -19,7 +19,7 @@ The framework is designed to address:
     └── README.md
 
 ## Dataset
-We use **Temple University Seizure Corpus (TUSZ)** v1.5.2 dataset, publicly available at: [here](https://isip.piconepress.com/projects/tuh_eeg/).
+We use **Temple University Seizure Corpus (TUSZ)** dataset, publicly available at: [here](https://isip.piconepress.com/projects/tuh_eeg/).
 Once your request form is accepted, you can access the dataset.
 
 ---
