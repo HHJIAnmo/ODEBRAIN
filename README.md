@@ -77,7 +77,7 @@ The following baseline models are supported:
 
 ## Citation
 If you find this work useful, please cite our paper:
-```
+```bibtex
 @inproceedings{
 jia2026odebrain,
 title = {ODEBrain: Continuous-Time EEG Graph for Modeling Dynamic Brain Networks},
