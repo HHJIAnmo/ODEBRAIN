@@ -73,7 +73,7 @@ The following baseline models are supported:
 | `lstm`      | Standard LSTM model               |
 | `cnnlstm`   | CNN-enhanced LSTM                 |
 
-![NeuroTSo](./fig/tab.png)
+![NeuroTSo](./fig/main_tab.png)
 
 ## Citation
 If you find this work useful, please cite our paper:
