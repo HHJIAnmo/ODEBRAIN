@@ -81,7 +81,7 @@ If you find this work useful, please cite our paper:
 @inproceedings{
 jia2026odebrain,
 title = {ODEBrain: Continuous-Time EEG Graph for Modeling Dynamic Brain Networks},
-author = {Haohui Jia and Zheng Chen and Lingwei Zhu and Rikuto Kotoge and Jathurshan Pradeepkumar and Yasuko Matsubara and Yasushi Sakurai and Takashi Matsubara},
+author = {Haohui Jia and Zheng Chen and Lingwei Zhu and Rikuto Kotoge and Jathurshan Pradeepkumar and Jimeng Sun and Yasuko Matsubara and Yasushi Sakurai and Takashi Matsubara},
 booktitle = {The Fourteenth International Conference on Learning Representations},
 year={2026}
 }
