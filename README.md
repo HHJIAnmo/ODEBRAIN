@@ -83,7 +83,7 @@ If you find this work useful, please cite our paper:
  booktitle = {International Conference on Learning Representations},
  editor = {C. Vondrick and B. Hariharan and C. Raffel and L. Pinto and D. Yang and A. Faust},
  pages = {106978--106996},
- title = {ODEBrain: Continuous-Time EEG Graph for Modeling Dynamic Brain Networks},
+ title = {{ODEB}rain: Continuous-Time {EEG} Graph for Modeling Dynamic Brain Networks},
  url = {https://proceedings.iclr.cc/paper_files/paper/2026/file/aebec8058f23a445353c83ede0e1ec48-Paper-Conference.pdf},
  volume = {2026},
  year = {2026}
