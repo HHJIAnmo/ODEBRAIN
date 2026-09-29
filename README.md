@@ -78,11 +78,15 @@ The following baseline models are supported:
 ## Citation
 If you find this work useful, please cite our paper:
 ```bibtex
-@inproceedings{
-jia2026odebrain,
-title = {ODEBrain: Continuous-Time EEG Graph for Modeling Dynamic Brain Networks},
-author = {Haohui Jia and Zheng Chen and Lingwei Zhu and Rikuto Kotoge and Jathurshan Pradeepkumar and Jimeng Sun and Yasuko Matsubara and Yasushi Sakurai and Takashi Matsubara},
-booktitle = {The Fourteenth International Conference on Learning Representations},
-year={2026}
+@inproceedings{ICLR2026_aebec805,
+ author = {Jia, Haohui and Chen, Zheng and Zhu, Lingwei and Kotoge, Rikuto and Pradeepkumar, Jathurshan and Matsubara, Yasuko and Sun, Jimeng and Sakurai, Yasushi and Matsubara, Takashi},
+ booktitle = {International Conference on Learning Representations},
+ editor = {C. Vondrick and B. Hariharan and C. Raffel and L. Pinto and D. Yang and A. Faust},
+ pages = {106978--106996},
+ title = {ODEBrain: Continuous-Time EEG Graph for Modeling Dynamic Brain Networks},
+ url = {https://proceedings.iclr.cc/paper_files/paper/2026/file/aebec8058f23a445353c83ede0e1ec48-Paper-Conference.pdf},
+ volume = {2026},
+ year = {2026}
 }
+
 ```
